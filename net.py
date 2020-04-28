@@ -99,7 +99,7 @@ def test(args, model, device):
     test_loss /= len(test_loader.dataset)
     rmse /= len(test_loader.dataset)
     psnr /= len(test_loader.dataset)
-    ssim = ((ssim1 + ssim2)/2) / len(test_loader.dataset)
+    ssim = ((ssim1 + ssim2)) / len(test_loader.dataset)
 
     print('\nTest set: Average values --> Loss: {:.4f}, RMSE: ({:.2f}), PSNR: ({:.2f}dB),'
           ' SSIM: ({:.2f})\n'.format(test_loss, rmse, psnr, ssim))
