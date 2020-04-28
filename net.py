@@ -9,6 +9,8 @@ from torch.optim.lr_scheduler import StepLR
 from PIL import Image
 from make_ds import train_loader
 from make_ds_test import test_loader
+import skimage.metrics as skm
+from math import sqrt
 
 
 def show_tensor(x):
@@ -74,23 +76,33 @@ def test(args, model, device):
     model.eval()
     test_loss = 0
     correct = 0
+    rmse = 0
+    psnr = 0
+    ssim = 0
+    ssim1 = 0
+    ssim2 = 0
     with torch.no_grad():
         for rs_test, gt_test in test_loader:
             rs_test, gt_test = rs_test.to(device), gt_test.to(device)
             output = model(gt_test, rs_test)
-            show_tensor(output[0])
-#            test_loss += F.nll_loss(output, gt_test, reduction='sum').item()  # sum up batch loss
             test_loss_function = nn.L1Loss(reduction='sum')
             test_loss = test_loss_function(output, gt_test).item()
-            out = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
-            correct += (out.cpu() == gt_test.cpu()).sum()
-#            correct += pred.eq(gt_test.view_as(pred)).cpu().sum().item()
+            real = gt_test.numpy()
+            predicted = output.numpy()
+            rmse += skm.normalized_root_mse(real, predicted)
+            psnr += skm.peak_signal_noise_ratio(real, predicted)
+            ssim1 += skm.structural_similarity(real[0].reshape(128, 128, 3), predicted[0].reshape(128, 128, 3),
+                                              multichannel=True, data_range=real.max() - real.min())
+            ssim2 += skm.structural_similarity(real[1].reshape(128, 128, 3), predicted[1].reshape(128, 128, 3),
+                                              multichannel=True, data_range=real.max() - real.min())
 
     test_loss /= len(test_loader.dataset)
+    rmse /= len(test_loader.dataset)
+    psnr /= len(test_loader.dataset)
+    ssim = ((ssim1 + ssim2)/2) / len(test_loader.dataset)
 
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-        test_loss, correct, len(test_loader.dataset),
-        100. * correct / len(test_loader.dataset)))
+    print('\nTest set: Average values --> Loss: {:.4f}, RMSE: ({:.2f}), PSNR: ({:.2f}dB),'
+          ' SSIM: ({:.2f})\n'.format(test_loss, rmse, psnr, ssim))
 
 
 def main():
