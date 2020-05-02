@@ -16,7 +16,9 @@ im20 = skio.imread(root_path+"\\20m"+"all_bands.tiff")
 
 # create patches out of the image
 i = 0
-num_patches = 100
+j = 0
+num_patches = 200
+num_final_patches = 100
 size_im10 = 128
 resize_im10 = 64
 size_im20 = 64
@@ -27,10 +29,10 @@ max_pixel = np.round((im10.shape[0] - 128)/2).astype(dtype=np.int)
 # patch_8bit = np.ndarray((num_patches, size_im10, size_im10, channels10))
 patch_norm10 = np.ndarray((num_patches, size_im10, size_im10, channels10))
 patch_norm20 = np.ndarray((num_patches, size_im20, size_im20, channels20))
-gauss10 = np.ndarray((num_patches, size_im10, size_im10, channels10))
-gauss20 = np.ndarray((num_patches, size_im20, size_im20, channels20))
-rs10 = np.ndarray((num_patches, resize_im10, resize_im10, channels10))
-rs20 = np.ndarray((num_patches, resize_im20, resize_im20, channels20))
+gauss10 = np.ndarray((num_final_patches, size_im10, size_im10, channels10))
+gauss20 = np.ndarray((num_final_patches, size_im20, size_im20, channels20))
+rs10 = np.ndarray((num_final_patches, resize_im10, resize_im10, channels10))
+rs20 = np.ndarray((num_final_patches, resize_im20, resize_im20, channels20))
 
 patches10 = np.ndarray((num_patches, size_im10, size_im10, channels10))
 patches20 = np.ndarray((num_patches, size_im20, size_im20, channels20))
@@ -46,20 +48,27 @@ for i in range(num_patches):
 for i in range(num_patches):
     patch_norm10[i] = patches10[i]/(patches10[i].max())
     patch_norm20[i] = patches20[i]/(patches20[i].max())
-#     patch_8bit[i] = (np.round(patch_norm10[i] * 255)).astype(dtype=np.int)
-    gauss10[i] = gaussian_filter(patch_norm10[i], sigma=1 / 2)
-    gauss20[i] = gaussian_filter(patch_norm20[i], sigma=1 / 2)
-    rs10[i] = resize(gauss10[i], (resize_im10, resize_im10))
-    rs20[i] = resize(gauss20[i], (resize_im20, resize_im20))
+    if j < 100 and (patches10[i].max() < 5000 or patches20[i].max() < 4000):
+        gauss10[j] = gaussian_filter(patches10[i], sigma=1 / 2)
+        gauss20[j] = gaussian_filter(patches20[i], sigma=1 / 2)
+        rs10[j] = resize(gauss10[j], (resize_im10, resize_im10))
+        rs20[j] = resize(gauss20[j], (resize_im20, resize_im20))
+        j += 1
 
 
-fig = plt.figure()
-ax1 = fig.add_subplot(221)
-ax4 = fig.add_subplot(222)
-ax3 = fig.add_subplot(223)
-ax2 = fig.add_subplot(224)
-ax1.imshow(patch_norm10[1, :, :, 1:4])
-ax2.imshow(patch_norm20[1, :, :, 2:5])
-ax3.imshow(rs10[1, :, :, 1:4])
-ax4.imshow(rs20[1, :, :, 2:5])
-plt.show()
+np.savetxt('input10_resized20.csv', rs10.reshape((num_final_patches, resize_im10*resize_im10*channels10)), delimiter=',')
+print('First finished')
+np.savetxt('input20_resized40.csv', rs20.reshape((num_final_patches, resize_im20*resize_im20*channels20)), delimiter=',')
+print('Second finished')
+
+
+# fig = plt.figure()
+# ax1 = fig.add_subplot(221)
+# ax2 = fig.add_subplot(222)
+# ax3 = fig.add_subplot(223)
+# ax4 = fig.add_subplot(224)
+# ax1.imshow(patch_norm10[1, :, :, 0:3])
+# ax2.imshow(patch_norm20[1, :, :, 2:5])
+# ax3.imshow(rs10[1, :, :, 0:3]/rs10[1, :, :, 0:3].max())
+# ax4.imshow(rs20[1, :, :, 2:5]/rs20[1, :, :, 2:5].max())
+# plt.show()
