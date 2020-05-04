@@ -4,45 +4,53 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
-from PIL import Image
-from make_ds import train_loader
-from make_ds_test import test_loader
+from create_dataset import train_ds, val_ds, test_ds
 import skimage.metrics as skm
-from math import sqrt
+import numpy as np
+import matplotlib.pyplot as plt
 
 
-def show_tensor(x):
-    im = transforms.ToPILImage()(x)
-    im.save("asdf.png")
-    image = Image.open(r"asdf.png")
-    image.show()
+def show_im(a, b, c, d):
+    fig = plt.figure()
+    ax1 = fig.add_subplot(221)
+    ax2 = fig.add_subplot(222)
+    ax3 = fig.add_subplot(223)
+    ax4 = fig.add_subplot(224)
+    ax1.imshow(a[:, :, 2:5]/a[:, :, 2:5].max())
+    ax2.imshow(b[:, :, 3:6]/b[:, :, 3:6].max())
+    ax3.imshow(c[:, :, 2:5]/c[:, :, 2:5].max())
+    ax4.imshow(d[:, :, 3:6]/d[:, :, 3:6].max())
+    plt.show()
 
 
 class Net(nn.Module):
-    def __init__(self, feature_size=6, kernel_size=3):
+    def __init__(self, feature_size=10, kernel_size=3):
         super(Net, self).__init__()
+        self.ups = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.conv1 = nn.Conv2d(feature_size, feature_size, kernel_size, stride=(1, 1), padding=(1, 1))
-        self.conv2 = nn.Conv2d(feature_size, 3, kernel_size, 1, 1)
+        self.conv2 = nn.Conv2d(feature_size, 6, kernel_size, 1, 1)
         self.rBlock = ResBlock(feature_size, kernel_size)
 
     def forward(self, input10, input20, num_layers=6):
-        sentinel = torch.cat((input10, input20), 1)
+        upsamp20 = self.ups(input20)
+        sentinel = torch.cat((input10, upsamp20), 1)
         x = sentinel
         x = self.conv1(x)
         x = F.relu(x)
         for i in range(num_layers):
             x = self.rBlock(x)
         x = self.conv2(x)
-        x += input20
+        x += upsamp20
         return x
 
 
 class ResBlock(nn.Module):
     def __init__(self, channels=3, kernel_size=3):
         super(ResBlock, self).__init__()
-        self.conv3 = nn.Conv2d(6, 6, kernel_size, 1, 1)
+        self.conv3 = nn.Conv2d(10, 10, kernel_size, 1, 1)
 
     def forward(self, x, scale=0.1):
         tmp = self.conv3(x)
@@ -53,64 +61,91 @@ class ResBlock(nn.Module):
         return tmp
 
 
-def train(args, model, device, optimizer, epoch):
+def train(args, train_loader, model, device, optimizer, epoch):
     model.train()
-    for batch_idx, (rs, gt) in enumerate(train_loader):
+    for batch_idx, (hr, lr, target) in enumerate(train_loader):
         print(f'batch {batch_idx+1}:')
-        rs, gt = rs.to(device), gt.to(device)
+        lr, hr, target = lr.to(device), hr.to(device), target.to(device)
         optimizer.zero_grad()
-        output = model(gt, rs)
+        output = model(hr, lr)
 #        gt = gt.long()
         loss_function = nn.L1Loss()
 #        loss = F.nll_loss(output, gt)
-        loss = loss_function(output, gt)
+        loss = loss_function(output, target)
         loss.backward()
         optimizer.step()
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, batch_idx * len(rs), len(train_loader.dataset),
+                epoch, batch_idx * len(lr), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
 
 
-def test(args, model, device):
+def test(args, test_loader, model, device):
     model.eval()
     test_loss = 0
-    correct = 0
     rmse = 0
     psnr = 0
     ssim = 0
-    ssim1 = 0
-    ssim2 = 0
     with torch.no_grad():
-        for rs_test, gt_test in test_loader:
-            rs_test, gt_test = rs_test.to(device), gt_test.to(device)
-            output = model(gt_test, rs_test)
+        for hr, lr, target in test_loader:
+            lr, hr, target = lr.to(device), hr.to(device), target.to(device)
+            output = model(hr, lr)
             test_loss_function = nn.L1Loss(reduction='sum')
-            test_loss = test_loss_function(output, gt_test).item()
-            real = gt_test.numpy()
-            predicted = output.numpy()
+            test_loss = test_loss_function(output, target).item()
+            real = np.moveaxis(target.numpy(), 1, 3)
+            predicted = np.moveaxis(output.numpy(), 1, 3)
             rmse += skm.normalized_root_mse(real, predicted)
-            psnr += skm.peak_signal_noise_ratio(real, predicted)
-            ssim1 += skm.structural_similarity(real[0].reshape(128, 128, 3), predicted[0].reshape(128, 128, 3),
-                                              multichannel=True, data_range=real.max() - real.min())
-            ssim2 += skm.structural_similarity(real[1].reshape(128, 128, 3), predicted[1].reshape(128, 128, 3),
-                                              multichannel=True, data_range=real.max() - real.min())
+            psnr += skm.peak_signal_noise_ratio(real, predicted, data_range=real.max()-real.min())
+            for i in range(5):
+                ssim += skm.structural_similarity(real[i], predicted[i], multichannel=True,
+                                                  data_range=real.max() - real.min())
 
     test_loss /= len(test_loader.dataset)
     rmse /= len(test_loader.dataset)
     psnr /= len(test_loader.dataset)
-    ssim = ((ssim1 + ssim2)) / len(test_loader.dataset)
+    ssim /= len(test_loader.dataset)
 
     print('\nTest set: Average values --> Loss: {:.4f}, RMSE: ({:.2f}), PSNR: ({:.2f}dB),'
+          ' SSIM: ({:.2f})\n'.format(test_loss, rmse, psnr, ssim))
+
+
+def validation(args, val_loader, model, device):
+    model.eval()
+    val_loss = 0
+    rmse = 0
+    psnr = 0
+    ssim = 0
+    with torch.no_grad():
+        for hr, lr, target in val_loader:
+            lr, hr, target = lr.to(device), hr.to(device), target
+            output = model(hr, lr)
+            test_loss_function = nn.L1Loss(reduction='sum')
+            test_loss = test_loss_function(output, target).item()
+            real = np.moveaxis(target.numpy(), 1, 3)
+            predicted = np.moveaxis(output.numpy(), 1, 3)
+            show_im(real[0], real[1], predicted[0], predicted[1])
+            print(predicted.shape)
+            rmse += skm.normalized_root_mse(real, predicted)
+            psnr += skm.peak_signal_noise_ratio(real, predicted, data_range=real.max()-real.min())
+            for i in range(5):
+                ssim += skm.structural_similarity(real[i], predicted[i], multichannel=True,
+                                                  data_range=real.max() - real.min())
+
+    test_loss /= len(val_loader.dataset)
+    rmse /= len(val_loader.dataset)
+    psnr /= len(val_loader.dataset)
+    ssim /= len(val_loader.dataset)
+
+    print('\nValidation set: Average values --> Loss: {:.4f}, RMSE: ({:.2f}), PSNR: ({:.2f}dB),'
           ' SSIM: ({:.2f})\n'.format(test_loss, rmse, psnr, ssim))
 
 
 def main():
     # Training settings
     parser = argparse.ArgumentParser(description='PyTorch TFG Net')
-    parser.add_argument('--batch-size', type=int, default=2, metavar='N',
+    parser.add_argument('--batch-size', type=int, default=10, metavar='N',
                         help='input batch size for training (default: 64)')
-    parser.add_argument('--test-batch-size', type=int, default=10, metavar='N',
+    parser.add_argument('--test-batch-size', type=int, default=5, metavar='N',
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--epochs', type=int, default=20, metavar='N',
                         help='number of epochs to train (default: 14)')
@@ -135,13 +170,20 @@ def main():
     device = torch.device("cuda" if use_cuda else "cpu")
     print(device)
 
+    train_loader = DataLoader(train_ds.dataset, batch_size=args.batch_size, shuffle=True)
+    val_loader = DataLoader(val_ds.dataset, batch_size=args.test_batch_size, shuffle=True)
+    test_loader = DataLoader(test_ds, batch_size=args.test_batch_size, shuffle=True)
+
     model = Net().to(device)
     optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
 
     scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
+    model = model.type(dst_type=torch.float64)
     for epoch in range(1, args.epochs + 1):
-        train(args, model, device, optimizer, epoch)
-        test(args, model, device)
+        train(args, train_loader, model, device, optimizer, epoch)
+        if epoch % 5 == 0:
+            validation(args, val_loader, model, device)
+        test(args, test_loader, model, device)
         scheduler.step()
 
     if args.save_model:
