@@ -17,8 +17,8 @@ im20 = skio.imread(root_path+"\\20m"+"all_bands.tiff")
 # create patches out of the image
 i = 0
 j = 0
-num_patches = 200
-num_final_patches = 100
+num_patches = 250
+num_final_patches = 50
 size_im10 = 128
 resize_im10 = 64
 size_im20 = 64
@@ -36,6 +36,7 @@ rs20 = np.ndarray((num_final_patches, resize_im20, resize_im20, channels20))
 
 patches10 = np.ndarray((num_patches, size_im10, size_im10, channels10))
 patches20 = np.ndarray((num_patches, size_im20, size_im20, channels20))
+patches20_target = np.ndarray((num_final_patches, size_im20, size_im20, channels20))
 
 for i in range(num_patches):
     j10 = np.random.randint(max_pixel)*2
@@ -48,18 +49,28 @@ for i in range(num_patches):
 for i in range(num_patches):
     patch_norm10[i] = patches10[i]/(patches10[i].max())
     patch_norm20[i] = patches20[i]/(patches20[i].max())
-    if j < 100 and (patches10[i].max() < 5000 or patches20[i].max() < 4000):
+    if j < num_final_patches and (patches10[i].max() < 5000 or patches20[i].max() < 4000):
         gauss10[j] = gaussian_filter(patches10[i], sigma=1 / 2)
         gauss20[j] = gaussian_filter(patches20[i], sigma=1 / 2)
         rs10[j] = resize(gauss10[j], (resize_im10, resize_im10))
         rs20[j] = resize(gauss20[j], (resize_im20, resize_im20))
+        patches20_target[j] = patches20[i]
         j += 1
 
 
-np.savetxt('input10_resized20.csv', rs10.reshape((num_final_patches, resize_im10*resize_im10*channels10)), delimiter=',')
+# np.savetxt('input10_resized20.csv', rs10.reshape((num_final_patches, resize_im10*resize_im10*channels10)), delimiter=',')
+# print('First finished')
+# np.savetxt('input20_resized40.csv', rs20.reshape((num_final_patches, resize_im20*resize_im20*channels20)), delimiter=',')
+# print('Second finished')
+# np.savetxt('real20_target.csv', patches20_target.reshape((num_final_patches, size_im20*size_im20*channels20)), delimiter=',')
+
+
+np.savetxt('test_resized20.csv', rs10.reshape((num_final_patches, resize_im10*resize_im10*channels10)), delimiter=',')
 print('First finished')
-np.savetxt('input20_resized40.csv', rs20.reshape((num_final_patches, resize_im20*resize_im20*channels20)), delimiter=',')
+np.savetxt('test_resized40.csv', rs20.reshape((num_final_patches, resize_im20*resize_im20*channels20)), delimiter=',')
 print('Second finished')
+np.savetxt('real20_target_test.csv', patches20_target.reshape((num_final_patches, size_im20*size_im20*channels20)), delimiter=',')
+##
 
 
 # fig = plt.figure()
