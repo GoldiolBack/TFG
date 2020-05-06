@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 class Net(nn.Module):
     def __init__(self, feature_size=10, kernel_size=3):
         super(Net, self).__init__()
-        self.ups = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+        self.ups = nn.Upsample(scale_factor=2, mode='bicubic', align_corners=True)
         self.conv1 = nn.Conv2d(feature_size, feature_size, kernel_size, stride=(1, 1), padding=(1, 1))
         self.conv2 = nn.Conv2d(feature_size, 6, kernel_size, 1, 1)
         self.rBlock = ResBlock(feature_size, kernel_size)
