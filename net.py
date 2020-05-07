@@ -11,6 +11,31 @@ from create_dataset import train_ds, val_ds, test_ds
 import skimage.metrics as skm
 import numpy as np
 import matplotlib.pyplot as plt
+from torch.utils.tensorboard import SummaryWriter
+import os
+
+
+logs_base_dir = "runs"
+os.makedirs(logs_base_dir, exist_ok=True)
+
+tb = SummaryWriter
+
+
+def crop(imageHR, imageLR, target, sizeHR, sizeLR, sizeTarget):
+    imageHR_crop = torch.zeros([imageHR.shape[0], imageHR.shape[1], sizeHR, sizeHR])
+    imageLR_crop = torch.zeros([imageLR.shape[0], imageLR.shape[1], sizeLR, sizeLR])
+    target_crop = torch.zeros([target.shape[0], target.shape[1], sizeTarget, sizeTarget])
+
+    for i in range(imageHR.shape[0]):
+        j1 = np.random.randint(low=0, high=sizeHR / 2 - 1) * 2
+        j2 = np.round((j1 / 2)).astype(dtype=np.int)
+        k1 = np.random.randint(low=0, high=sizeLR / 2 - 1) * 2
+        k2 = np.round((k1 / 2)).astype(dtype=np.int)
+        imageHR_crop[i] = imageHR[i, :, j1:(j1+sizeHR), k1:(k1+sizeHR)]
+        imageLR_crop[i] = imageLR[i, :, j2:(j2+sizeLR), k2:(k2+sizeLR)]
+        target_crop[i] = target[i, :, j1:(j1+sizeTarget), k1:(k1+sizeTarget)]
+
+    return imageHR_crop, imageLR_crop, target_crop
 
 
 class Net(nn.Module):
@@ -52,22 +77,24 @@ def train(args, train_loader, model, device, optimizer, epoch):
     model.train()
     for batch_idx, (hr, lr, target) in enumerate(train_loader):
         print(f'batch {batch_idx+1}:')
-        lr, hr, target = lr.to(device), hr.to(device), target.to(device)
+        hr_crop, lr_crop, target_crop = crop(hr, lr, target, 128, 64, 128)
+        lr_crop, hr_crop, target_crop = lr_crop.to(device), hr_crop.to(device), target_crop.to(device)
         optimizer.zero_grad()
-        output = model(hr, lr)
+        output = model(hr_crop, lr_crop)
 #        gt = gt.long()
         loss_function = nn.L1Loss()
 #        loss = F.nll_loss(output, gt)
-        loss = loss_function(output, target)
+        loss = loss_function(output, target_crop)
         loss.backward()
         optimizer.step()
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(lr), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
+        # tb.add_scalar("Loss/train", loss.item(), epoch)
 
 
-def test(args, test_loader, model, device):
+def test(args, test_loader, model, device, epoch):
     model.eval()
     test_loss = 0
     rmse = 0
@@ -75,17 +102,22 @@ def test(args, test_loader, model, device):
     ssim = 0
     with torch.no_grad():
         for hr, lr, target in test_loader:
-            lr, hr, target = lr.to(device), hr.to(device), target.to(device)
-            output = model(hr, lr)
+            hr_crop, lr_crop, target_crop = crop(hr, lr, target, 128, 64, 128)
+            lr_crop, hr_crop, target_crop = lr_crop.to(device), hr_crop.to(device), target_crop.to(device)
+            output = model(hr_crop, lr_crop)
             test_loss_function = nn.L1Loss(reduction='sum')
-            test_loss = test_loss_function(output, target).item()
-            real = np.moveaxis(target.cpu().numpy(), 1, 3)
+            test_loss = test_loss_function(output, target_crop).item()
+            real = np.moveaxis(target_crop.cpu().numpy(), 1, 3)
             predicted = np.moveaxis(output.cpu().numpy(), 1, 3)
-            rmse += skm.normalized_root_mse(real, predicted)
-            psnr += skm.peak_signal_noise_ratio(real, predicted, data_range=real.max()-real.min())
-            for i in range(5):
+            for i in range(args.test_batch_size):
+                rmse += skm.normalized_root_mse(real[i], predicted[i])
+                psnr += skm.peak_signal_noise_ratio(real[i], predicted[i], data_range=real.max() - real.min())
                 ssim += skm.structural_similarity(real[i], predicted[i], multichannel=True,
-                                                  data_range=real.max() - real.min())
+                                                    data_range=real.max() - real.min())
+            # tb.add_scalar("Loss/test", test_loss, epoch)
+            # tb.add_scalar("RMSE/test", rmse/5, epoch)
+            # tb.add_scalar("PSNR/test", psnr/5, epoch)
+            # tb.add_scalar("SSIM/test", ssim/5, epoch)
 
     test_loss /= len(test_loader.dataset)
     rmse /= len(test_loader.dataset)
@@ -104,15 +136,16 @@ def validation(args, val_loader, model, device):
     ssim = 0
     with torch.no_grad():
         for hr, lr, target in val_loader:
-            lr, hr, target = lr.to(device), hr.to(device), target.to(device)
-            output = model(hr, lr)
+            hr_crop, lr_crop, target_crop = crop(hr, lr, target, 128, 64, 128)
+            lr_crop, hr_crop, target_crop = lr_crop.to(device), hr_crop.to(device), target_crop.to(device)
+            output = model(hr_crop, lr_crop)
             val_loss_function = nn.L1Loss(reduction='sum')
-            val_loss = val_loss_function(output, target).item()
-            real = np.moveaxis(target.cpu().numpy(), 1, 3)
+            val_loss = val_loss_function(output, target_crop).item()
+            real = np.moveaxis(target_crop.cpu().numpy(), 1, 3)
             predicted = np.moveaxis(output.cpu().numpy(), 1, 3)
-            rmse += skm.normalized_root_mse(real, predicted)
-            psnr += skm.peak_signal_noise_ratio(real, predicted, data_range=real.max()-real.min())
-            for i in range(5):
+            for i in range(args.test_batch_size):
+                rmse += skm.normalized_root_mse(real[i], predicted[i])
+                psnr += skm.peak_signal_noise_ratio(real[i], predicted[i], data_range=real.max() - real.min())
                 ssim += skm.structural_similarity(real[i], predicted[i], multichannel=True,
                                                   data_range=real.max() - real.min())
 
@@ -124,17 +157,17 @@ def validation(args, val_loader, model, device):
     print('\nValidation set: Average values --> Loss: {:.4f}, RMSE: ({:.2f}), PSNR: ({:.2f}dB),'
           ' SSIM: ({:.2f})\n'.format(val_loss, rmse, psnr, ssim))
 
-    np.savetxt('val_input.csv', (np.moveaxis(lr.cpu().numpy(), 1, 3)).reshape(5, 32*32*6), delimiter=',')
-    np.savetxt('val_real.csv', real.reshape(5, 64*64*6), delimiter=',')
-    np.savetxt('val_output.csv', predicted.reshape(5, 64*64*6), delimiter=',')
+    np.savetxt('val_input.csv', (np.moveaxis(lr_crop.cpu().numpy(), 1, 3)).reshape(5, 64*64*6), delimiter=',')
+    np.savetxt('val_real.csv', real.reshape(5, 128*128*6), delimiter=',')
+    np.savetxt('val_output.csv', predicted.reshape(5, 128*128*6), delimiter=',')
 
 
 def main():
     # Training settings
     parser = argparse.ArgumentParser(description='PyTorch TFG Net')
-    parser.add_argument('--batch-size', type=int, default=10, metavar='N',
+    parser.add_argument('--batch-size', type=int, default=30, metavar='N',
                         help='input batch size for training (default: 64)')
-    parser.add_argument('--test-batch-size', type=int, default=5, metavar='N',
+    parser.add_argument('--test-batch-size', type=int, default=10, metavar='N',
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--epochs', type=int, default=20, metavar='N',
                         help='number of epochs to train (default: 14)')
@@ -168,11 +201,19 @@ def main():
 
     scheduler = StepLR(optimizer, step_size=5, gamma=args.gamma)
     model = model.type(dst_type=torch.float64)
+
+    # get some random training images
+    # dataiter = iter(train_loader)
+    # hr, lr, target = dataiter.next()
+
+    # visualize the model
+    # tb.add_graph(model, (hr, lr))
+
     for epoch in range(1, args.epochs + 1):
         train(args, train_loader, model, device, optimizer, epoch)
         if epoch % 5 == 0:
             validation(args, val_loader, model, device)
-        test(args, test_loader, model, device)
+        test(args, test_loader, model, device, epoch)
         scheduler.step()
 
     if args.save_model:
