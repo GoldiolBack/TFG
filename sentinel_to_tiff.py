@@ -15,12 +15,12 @@ import os
 date = "20190831T104021"
 code = "T31TDG"
 
-root_path = "C:\\Users\\orioe\\Desktop\\ETSETB\\4B\\TFG\\Images-Sentinel-2\\" \
-            "S2A_MSIL2A_20190831T104021_N0213_R008_T31TDG_20190831T140616"
+root_path = "/home/usuaris/imatge/oriol.esquena/TFG/images/" \
+            "S2A_MSIL2A_20190831T104021_N0213_R008_T31TDG_20190831T140616/"
 
 codigo_l2a= "L2A_T31TDG_A021884_20190831T104349"
 
-imagePath = os.path.join(root_path, "GRANULE\\"+codigo_l2a+"\\IMG_DATA\\R20m\\")
+imagePath = root_path+"GRANULE/"+codigo_l2a+"/IMG_DATA/R20m/"
 band_prefix = code+"_"+date
 
 # band2 = rasterio.open(imagePath+band_prefix+'_B02_20m.jp2', driver='JP2OpenJPEG')  #blue
