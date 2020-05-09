@@ -8,41 +8,41 @@ from torchvision.transforms import ToTensor
 import numpy as np
 
 
-num_final_patches = 100
-num_final_patches_test = 50
-resize_im10 = 64
-size_im20 = 64
-resize_im20 = 32
+num_final_patches = 300
+num_final_patches_test = 100
+resize_im10 = 256
+size_im20 = 256
+resize_im20 = 128
 channels10 = 4
 channels20 = 6
 
 root = "C:/Users/orioe/PycharmProjects/TFG/"
-file_name_HR = 'input10_resized20.csv'
-file_name_LR = 'input20_resized40.csv'
-file_name_target = 'real20_target.csv'
+file_name_HR = 'input10_resized20.npy'
+file_name_LR = 'input20_resized40.npy'
+file_name_target = 'real20_target.npy'
 
-test_HR = 'test_resized20.csv'
-test_LR = 'test_resized40.csv'
-test_target = 'real20_target_test.csv'
+test_HR = 'test_resized20.npy'
+test_LR = 'test_resized40.npy'
+test_target = 'real20_target_test.npy'
 
-# read training data from *.csv file
-HR_data_np = (np.loadtxt(file_name_HR, delimiter=',')).reshape((num_final_patches, resize_im10, resize_im10, channels10))
-LR_data_np = (np.loadtxt(file_name_LR, delimiter=',')).reshape((num_final_patches, resize_im20, resize_im20, channels20))
-target_np = (np.loadtxt(file_name_target, delimiter=',')).reshape((num_final_patches, size_im20, size_im20, channels20))
+# read training data from *.npy file
+HR_data_np = (np.load(file_name_HR))
+LR_data_np = (np.load(file_name_LR))
+target_np = (np.load(file_name_target))
 
-# read testing data from *.csv file
-HR_test_np = (np.loadtxt(test_HR, delimiter=',')).reshape((num_final_patches_test, resize_im10, resize_im10, channels10))
-LR_test_np = (np.loadtxt(test_LR, delimiter=',')).reshape((num_final_patches_test, resize_im20, resize_im20, channels20))
-target_test_np = (np.loadtxt(test_target, delimiter=',')).reshape((num_final_patches_test, size_im20, size_im20, channels20))
+# read testing data from *.npy file
+HR_test_np = (np.load(test_HR))
+LR_test_np = (np.load(test_LR))
+target_test_np = (np.load(test_target))
 
 # transform read data in numpy to torch Tensor
-HR_data = (torch.from_numpy(HR_data_np)).permute(0, 3, 1, 2)
-LR_data = (torch.from_numpy(LR_data_np)).permute(0, 3, 1, 2)
-target_data = (torch.from_numpy(target_np)).permute(0, 3, 1, 2)
+HR_data = ((torch.from_numpy(HR_data_np)).permute(0, 3, 1, 2)).type(dtype=torch.float32)
+LR_data = ((torch.from_numpy(LR_data_np)).permute(0, 3, 1, 2)).type(dtype=torch.float32)
+target_data = ((torch.from_numpy(target_np)).permute(0, 3, 1, 2)).type(dtype=torch.float32)
 
-HR_test = (torch.from_numpy(HR_test_np)).permute(0, 3, 1, 2)
-LR_test = (torch.from_numpy(LR_test_np)).permute(0, 3, 1, 2)
-target_test = (torch.from_numpy(target_test_np)).permute(0, 3, 1, 2)
+HR_test = ((torch.from_numpy(HR_test_np)).permute(0, 3, 1, 2)).type(dtype=torch.float32)
+LR_test = ((torch.from_numpy(LR_test_np)).permute(0, 3, 1, 2)).type(dtype=torch.float32)
+target_test = ((torch.from_numpy(target_test_np)).permute(0, 3, 1, 2)).type(dtype=torch.float32)
 
 
 class PatchesDataset(Dataset):
@@ -79,5 +79,5 @@ class PatchesDataset(Dataset):
 
 
 set_ds = PatchesDataset(HR_data, LR_data, target_data)
-train_ds, val_ds = torch.utils.data.random_split(set_ds, [90, 10])
+train_ds, val_ds = torch.utils.data.random_split(set_ds, [270, 30])
 test_ds = PatchesDataset(HR_test, LR_test, target_test)
