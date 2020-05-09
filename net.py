@@ -11,20 +11,20 @@ from create_dataset import train_ds, val_ds, test_ds
 import skimage.metrics as skm
 import numpy as np
 import matplotlib.pyplot as plt
-from torch.utils.tensorboard import SummaryWriter
+# from torch.utils.tensorboard import SummaryWriter
 import os
 
 
-logs_base_dir = "runs"
-os.makedirs(logs_base_dir, exist_ok=True)
+# logs_base_dir = "runs"
+# os.makedirs(logs_base_dir, exist_ok=True)
 
-tb = SummaryWriter
+# tb = SummaryWriter
 
 
 def crop(imageHR, imageLR, target, sizeHR, sizeLR, sizeTarget):
-    imageHR_crop = torch.zeros([imageHR.shape[0], imageHR.shape[1], sizeHR, sizeHR])
-    imageLR_crop = torch.zeros([imageLR.shape[0], imageLR.shape[1], sizeLR, sizeLR])
-    target_crop = torch.zeros([target.shape[0], target.shape[1], sizeTarget, sizeTarget])
+    imageHR_crop = torch.zeros([imageHR.shape[0], imageHR.shape[1], sizeHR, sizeHR], dtype=torch.float32)
+    imageLR_crop = torch.zeros([imageLR.shape[0], imageLR.shape[1], sizeLR, sizeLR], dtype=torch.float32)
+    target_crop = torch.zeros([target.shape[0], target.shape[1], sizeTarget, sizeTarget], dtype=torch.float32)
 
     for i in range(imageHR.shape[0]):
         j1 = np.random.randint(low=0, high=sizeHR / 2 - 1) * 2
@@ -39,10 +39,10 @@ def crop(imageHR, imageLR, target, sizeHR, sizeLR, sizeTarget):
 
 
 class Net(nn.Module):
-    def __init__(self, feature_size=10, kernel_size=3):
+    def __init__(self, input_size=10, feature_size=128, kernel_size=3):
         super(Net, self).__init__()
         self.ups = nn.Upsample(scale_factor=2, mode='bicubic', align_corners=True)
-        self.conv1 = nn.Conv2d(feature_size, feature_size, kernel_size, stride=(1, 1), padding=(1, 1))
+        self.conv1 = nn.Conv2d(input_size, feature_size, kernel_size, stride=(1, 1), padding=(1, 1))
         self.conv2 = nn.Conv2d(feature_size, 6, kernel_size, 1, 1)
         self.rBlock = ResBlock(feature_size, kernel_size)
 
@@ -60,9 +60,9 @@ class Net(nn.Module):
 
 
 class ResBlock(nn.Module):
-    def __init__(self, channels=3, kernel_size=3):
+    def __init__(self, feature_size=128, channels=3, kernel_size=3):
         super(ResBlock, self).__init__()
-        self.conv3 = nn.Conv2d(10, 10, kernel_size, 1, 1)
+        self.conv3 = nn.Conv2d(feature_size, feature_size, kernel_size, 1, 1)
 
     def forward(self, x, scale=0.1):
         tmp = self.conv3(x)
@@ -76,7 +76,7 @@ class ResBlock(nn.Module):
 def train(args, train_loader, model, device, optimizer, epoch):
     model.train()
     for batch_idx, (hr, lr, target) in enumerate(train_loader):
-        print(f'batch {batch_idx+1}:')
+#        print(f'batch {batch_idx+1}:')
         hr_crop, lr_crop, target_crop = crop(hr, lr, target, 128, 64, 128)
         lr_crop, hr_crop, target_crop = lr_crop.to(device), hr_crop.to(device), target_crop.to(device)
         optimizer.zero_grad()
@@ -157,9 +157,9 @@ def validation(args, val_loader, model, device):
     print('\nValidation set: Average values --> Loss: {:.4f}, RMSE: ({:.2f}), PSNR: ({:.2f}dB),'
           ' SSIM: ({:.2f})\n'.format(val_loss, rmse, psnr, ssim))
 
-    np.savetxt('val_input.csv', (np.moveaxis(lr_crop.cpu().numpy(), 1, 3)).reshape(5, 64*64*6), delimiter=',')
-    np.savetxt('val_real.csv', real.reshape(5, 128*128*6), delimiter=',')
-    np.savetxt('val_output.csv', predicted.reshape(5, 128*128*6), delimiter=',')
+    np.save('val_input.npy', (np.moveaxis(lr_crop.cpu().numpy(), 1, 3)))
+    np.save('val_real.npy', real)
+    np.save('val_output.npy', predicted)
 
 
 def main():
@@ -179,7 +179,7 @@ def main():
                         help='disables CUDA training')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
-    parser.add_argument('--log-interval', type=int, default=5, metavar='N',
+    parser.add_argument('--log-interval', type=int, default=3, metavar='N',
                         help='how many batches to wait before logging training status')
 
     parser.add_argument('--save-model', action='store_true', default=False,
@@ -192,15 +192,17 @@ def main():
     device = torch.device("cuda" if use_cuda else "cpu")
     print(device)
 
-    train_loader = DataLoader(train_ds.dataset, batch_size=args.batch_size, shuffle=True)
-    val_loader = DataLoader(val_ds.dataset, batch_size=args.test_batch_size, shuffle=True)
-    test_loader = DataLoader(test_ds, batch_size=args.test_batch_size, shuffle=True)
+    kwargs = {'num_workers': 5, 'pin_memory': True} if use_cuda else {}
+
+    train_loader = DataLoader(train_ds.dataset, batch_size=args.batch_size, shuffle=True, **kwargs)
+    val_loader = DataLoader(val_ds.dataset, batch_size=args.test_batch_size, shuffle=True, **kwargs)
+    test_loader = DataLoader(test_ds, batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
     model = Net().to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999), weight_decay=0.004)
 
     scheduler = StepLR(optimizer, step_size=5, gamma=args.gamma)
-    model = model.type(dst_type=torch.float64)
+    model = model.type(dst_type=torch.float32)
 
     # get some random training images
     # dataiter = iter(train_loader)
@@ -211,7 +213,7 @@ def main():
 
     for epoch in range(1, args.epochs + 1):
         train(args, train_loader, model, device, optimizer, epoch)
-        if epoch % 5 == 0:
+        if epoch % 10 == 0:
             validation(args, val_loader, model, device)
         test(args, test_loader, model, device, epoch)
         scheduler.step()
